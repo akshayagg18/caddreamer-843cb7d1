@@ -178,10 +178,12 @@ LOG "3. Build fitpoints"
 ) || { echo "fitpoints build failed:"; tail -25 pyransac/cmake.log; exit 1; }
 ls -la pyransac/cmake-build-release/fitpoints*.so
 
-# The repo's neus/newton/process.py hardcodes a machine-specific
-# `sys.path.append("/mnt/disk/CADDreamer/neus")` so that `import newton.*`
-# resolves. Reproduce that on PYTHONPATH pointing at THIS checkout's neus/ dir.
-export PYTHONPATH="$(pwd)/neus:$(pwd):$PYTHONPATH"
+# Path setup. The repo root must come BEFORE neus/ so that top-level `import
+# utils.graphcut` resolves to repo-root utils/ (there is also a neus/utils/ —
+# if neus/ were first, `utils` would bind to neus/utils, which lacks graphcut).
+# neus/ is also on the path because neus/newton/process.py hardcodes
+# `sys.path.append("/mnt/disk/CADDreamer/neus")` so it can `import newton.*`.
+export PYTHONPATH="$(pwd):$(pwd)/neus:$PYTHONPATH"
 
 # --------------------------------------------------------------------------
 # 4. Stage 2 — segmentation (writes the temp cache stage 3 consumes)
