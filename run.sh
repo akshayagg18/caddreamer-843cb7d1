@@ -87,6 +87,47 @@ done
 $PY -m pip install --quiet "bpy==3.6.0" --extra-index-url https://download.blender.org/pypi/ 2>&1 | tail -1 || echo "  (bpy failed)"
 $PY -m pip install --quiet blenderproc 2>&1 | tail -1 || echo "  (blenderproc failed)"
 
+# Patch blenderproc's __init__.py to remove its "only runnable via blenderproc
+# run" guard, exactly as the repo's setup.sh does — the stages import it under
+# plain `python`.
+LOG "2b. Patch blenderproc guard"
+BP_INIT=$($PY -c "import os,blenderproc; print(os.path.join(os.path.dirname(blenderproc.__file__),'__init__.py'))" 2>/dev/null || true)
+if [ -n "$BP_INIT" ] && [ -f "$BP_INIT" ]; then
+cat > "$BP_INIT" <<'BPEOF'
+"""A procedural Blender pipeline for photorealistic rendering."""
+import os
+import sys
+from .version import __version__
+if sys.version_info.major < 3:
+    raise Exception("BlenderProc requires at least python 3.X to run.")
+from .api import loader
+from .api import utility
+from .api import sampler
+from .api import math
+from .python.utility.Initializer import init, clean_up
+from .api import postprocessing
+from .api import writer
+from .api import material
+from .api import lighting
+from .api import camera
+from .api import renderer
+from .api import world
+from .api import constructor
+from .api import types
+from .api import object
+from .api import filter
+if "INSIDE_OF_THE_INTERNAL_BLENDER_PYTHON_ENVIRONMENT" in os.environ:
+    sys.path.remove(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    if "PYTHONPATH" in os.environ:
+        del os.environ["PYTHONPATH"]
+    from .python.utility.SetupUtility import SetupUtility
+    SetupUtility.setup([])
+BPEOF
+    echo "  patched $BP_INIT"
+else
+    echo "  blenderproc not importable; skipping patch"
+fi
+
 # FreeCAD python path so `import FreeCAD/Part/Mesh` works under our python.
 export PYTHONPATH="$CONDA_DIR/envs/$ENV/lib:$CONDA_DIR/envs/$ENV/Mod:$PYTHONPATH"
 

@@ -14,22 +14,21 @@ import sys
 
 
 def find_generated_step(example_dir):
-    # stage 3 writes via write_step_file; search common output locations
+    # stage 3 writes via write_step_file; search the output locations it uses.
     candidates = []
     for pat in [
         "neus/temp_mid_outputs/**/*.step",
         "neus/temp_mid_results/**/*.step",
         "out/**/*.step",
-        os.path.join(example_dir, "**/*.step"),
-        "**/*.step",
     ]:
         candidates += glob.glob(pat, recursive=True)
-    # exclude the reference itself
-    ref = os.path.join(example_dir, "result.step")
+    # any freshly-written step under the example dir, but NOT a shipped
+    # result.step reference (those are the authors' bundled outputs)
+    for c in glob.glob(os.path.join(example_dir, "**/*.step"), recursive=True):
+        if os.path.basename(c) != "result.step":
+            candidates.append(c)
     gen = [c for c in candidates
-           if os.path.abspath(c) != os.path.abspath(ref)
-           and os.path.getsize(c) > 0]
-    # newest first
+           if os.path.basename(c) != "result.step" and os.path.getsize(c) > 0]
     gen.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return gen[0] if gen else None
 
