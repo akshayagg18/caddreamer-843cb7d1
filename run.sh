@@ -167,11 +167,22 @@ print("MISSING:", *bad, sep="\n  ")
 import sys, os
 sys.path.insert(0, os.getcwd())
 sys.path.insert(1, os.path.join(os.getcwd(), "neus"))
+# Reproduce the REAL condition: bpy/blenderproc imported first (they mutate
+# sys.path), THEN utils.graphcut — exactly stage 2's order.
+try:
+    import bpy            # noqa
+    import blenderproc    # noqa
+except Exception as e:
+    print("bpy/blenderproc import note:", e)
+print("sys.path[0:6] after bpy:", sys.path[:6])
+print("cwd on path?", os.getcwd() in sys.path)
 try:
     import importlib
+    importlib.import_module("utils.util")
+    print("utils.util: OK")
     importlib.import_module("utils.graphcut")
     print("utils.graphcut: import OK")
-except Exception as e:
+except Exception:
     import traceback
     print("utils.graphcut REAL error:")
     traceback.print_exc()
