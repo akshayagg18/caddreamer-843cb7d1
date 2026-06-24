@@ -81,7 +81,8 @@ LOG "2. pip dependencies (individual, best-effort)"
 $PY -m pip install --quiet --upgrade pip
 for pkg in opencv-python-headless dill tqdm einops omegaconf pyhocon \
            icecream loguru potpourri3d pymeshlab python-louvain open3d \
-           gitpython; do
+           gitpython rich pyyaml requests setuptools transforms3d \
+           pyquaternion coloredlogs; do
     $PY -m pip install --quiet "$pkg" 2>&1 | tail -1 || echo "  (pip $pkg failed, continuing)"
 done
 # bpy / blenderproc are imported by stage2; best-effort headless blender python
