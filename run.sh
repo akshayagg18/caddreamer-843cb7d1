@@ -47,16 +47,17 @@ if ! conda env list | grep -q "/$ENV$"; then
     mamba create -y -n "$ENV" python=3.10 2>&1 | tail -2
     conda activate "$ENV"
 
-    LOG "1b. torch (CPU, conda-forge) + pytorch3d + torch-scatter"
-    # conda-forge ships CPU pytorch builds without the pytorch-cuda pin that the
-    # 'pytorch' channel's 2.0.1 build forces (that pin conflicts with cpuonly).
-    mamba install -y -c conda-forge \
-        "pytorch=2.*=cpu*" "torchvision=*=cpu*" \
+    LOG "1b. torch (CUDA) + pytorch3d + torch-scatter"
+    # The segmentation has hardcoded CUDA paths (pytorch3d rasterization), so we
+    # run on GPU with a real CUDA torch. pytorch3d from its channel, matched to
+    # this torch + the box's CUDA.
+    mamba install -y -c pytorch -c nvidia -c conda-forge \
+        "pytorch=2.0.1" "torchvision=0.15.2" "pytorch-cuda=11.8" \
         2>&1 | tail -4
-    mamba install -y -c pytorch3d -c conda-forge pytorch3d pytorch_scatter \
-        2>&1 | tail -4 || \
+    mamba install -y -c pytorch3d -c pytorch -c nvidia -c conda-forge \
+        pytorch3d pytorch_scatter 2>&1 | tail -4 || \
       $CONDA_DIR/envs/$ENV/bin/pip install --quiet \
-        torch-scatter -f https://data.pyg.org/whl/torch-2.0.1+cpu.html 2>&1 | tail -2
+        torch-scatter -f https://data.pyg.org/whl/torch-2.0.1+cu118.html 2>&1 | tail -2
 
     LOG "1c. FreeCAD + pythonOCC (conda-forge)"
     mamba install -y -c conda-forge freecad=0.21 pythonocc-core=7.7.2 eigen \
