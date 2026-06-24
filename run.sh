@@ -84,7 +84,7 @@ for pkg in opencv-python-headless dill tqdm einops omegaconf pyhocon \
            gitpython rich pyyaml requests setuptools transforms3d \
            pyquaternion coloredlogs pypng \
            meshio geomdl plyfile openmesh numba sympy svgwrite \
-           rtree lapsolver; do
+           rtree lapsolver vedo pyvista polyscope; do
     $PY -m pip install --quiet "$pkg" 2>&1 | tail -1 || echo "  (pip $pkg failed, continuing)"
 done
 # bpy / blenderproc are imported by stage2; best-effort headless blender python
