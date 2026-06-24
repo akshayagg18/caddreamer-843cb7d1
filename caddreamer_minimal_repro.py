@@ -52,18 +52,28 @@ def load_sample(path="pyransac/test_data_for_pyransac.pth"):
     return v, n, l
 
 
-def residual_stats(result, type_id):
-    """Pull the per-point distance error array the fitter returns for the
-    best primitive of `type_id`, and summarise it."""
+def error_array(result, type_id):
+    """Return the raw per-point distance array (one value per input point) for
+    the first detected primitive of `type_id`, or None."""
     name = TYPE_NAMES[type_id]
-    # keys look like "plane0", "cylinder0", ... (index suffix per detected shape)
     err_keys = [k for k in result.keys()
                 if k.startswith(name) and k[len(name):].isdigit()]
     if not err_keys:
         return None
-    # use the first detected primitive of this type
     key = sorted(err_keys)[0]
-    errs = np.asarray(result[key], dtype=np.float64)
+    return np.asarray(result[key], dtype=np.float64)
+
+
+def residual_stats(result, type_id):
+    """Pull the per-point distance error array the fitter returns for the
+    best primitive of `type_id`, and summarise it."""
+    errs = error_array(result, type_id)
+    if errs is None:
+        return None
+    name = TYPE_NAMES[type_id]
+    err_keys = [k for k in result.keys()
+                if k.startswith(name) and k[len(name):].isdigit()]
+    key = sorted(err_keys)[0]
     errs = errs[np.isfinite(errs)]
     if errs.size == 0:
         return None
@@ -90,6 +100,81 @@ def primitive_params(result, type_id):
     return params
 
 
+def visualize(v, rows_err, best_name, outdir="outputs"):
+    """Render the input point cloud colored by point-to-primitive fit error.
+
+    Produces, per detected primitive, a 3D scatter where each input point is
+    tinted by how far it lies from the fitted surface (blue = on-surface,
+    red = far) -- a direct visual of how well that analytic primitive explains
+    the patch. Saves PNGs to `outdir/`. Headless-safe (Agg backend).
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    except Exception as e:
+        print(f"  [viz] matplotlib unavailable, skipping images: {e}")
+        return []
+
+    os.makedirs(outdir, exist_ok=True)
+    written = []
+
+    # Combined figure: one subplot per primitive, plus a panel highlighting best.
+    items = [(nm, e) for (nm, e) in rows_err if e is not None]
+    if not items:
+        return []
+
+    ncol = len(items)
+    fig = plt.figure(figsize=(4 * ncol, 4.2))
+    for i, (name, errs) in enumerate(items):
+        e = np.where(np.isfinite(errs), errs, np.nan)
+        ax = fig.add_subplot(1, ncol, i + 1, projection="3d")
+        sc = ax.scatter(v[:, 0], v[:, 1], v[:, 2], c=e, cmap="coolwarm",
+                        s=6, vmin=0.0,
+                        vmax=np.nanpercentile(e, 95) if np.isfinite(e).any() else 1.0)
+        rms = float(np.sqrt(np.nanmean(e ** 2)))
+        title = f"{name}\nRMS={rms:.4g}"
+        if name == best_name:
+            title = "* BEST *\n" + title
+        ax.set_title(title, fontsize=10)
+        ax.set_xticklabels([]); ax.set_yticklabels([]); ax.set_zticklabels([])
+        try:
+            ax.set_box_aspect((1, 1, 1))
+        except Exception:
+            pass
+    fig.colorbar(sc, ax=fig.axes, shrink=0.6, label="point-to-surface distance")
+    fig.suptitle("CADDreamer primitive fitting — input points colored by fit error",
+                 fontsize=12)
+    out = os.path.join(outdir, "primitive_fits.png")
+    fig.savefig(out, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    written.append(out)
+    print(f"  [viz] wrote {out}")
+
+    # Standalone, larger render of the best-fitting primitive.
+    best = next(((nm, e) for (nm, e) in items if nm == best_name), items[0])
+    name, errs = best
+    e = np.where(np.isfinite(errs), errs, np.nan)
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    sc = ax.scatter(v[:, 0], v[:, 1], v[:, 2], c=e, cmap="coolwarm", s=10,
+                    vmin=0.0,
+                    vmax=np.nanpercentile(e, 95) if np.isfinite(e).any() else 1.0)
+    ax.set_title(f"Best fit: {name}  (RMS={float(np.sqrt(np.nanmean(e**2))):.4g})")
+    fig.colorbar(sc, ax=ax, shrink=0.6, label="point-to-surface distance")
+    try:
+        ax.set_box_aspect((1, 1, 1))
+    except Exception:
+        pass
+    out = os.path.join(outdir, "best_fit.png")
+    fig.savefig(out, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    written.append(out)
+    print(f"  [viz] wrote {out}")
+    return written
+
+
 def main():
     print(f"fitpoints module dir: {FIT_DIR}")
     import fitpoints  # noqa: E402
@@ -104,15 +189,18 @@ def main():
     # We run all six analytic primitive detectors on the sample and report
     # which one explains the surface and how well.
     rows = []
+    rows_err = []   # (name, raw per-point error array) for visualization
     for type_id, name in TYPE_NAMES.items():
         try:
             res = fitpoints.py_fit(v, n, 0.3, int(type_id))
         except Exception as e:
             print(f"  [{name}] py_fit raised: {e}")
             rows.append((name, None, None))
+            rows_err.append((name, None))
             continue
         stats = residual_stats(res, type_id)
         params = primitive_params(res, type_id)
+        rows_err.append((name, error_array(res, type_id)))
         n_shapes = len([k for k in res.keys()
                         if k.startswith(name) and k[len(name):].isdigit()])
         print(f"  [{name}] detected {n_shapes} shape(s); "
@@ -123,6 +211,18 @@ def main():
     scored = [(name, s, p) for (name, s, p) in rows if s is not None]
     scored.sort(key=lambda r: r[1]["rms"])
     best = scored[0] if scored else None
+
+    # Render the fits as PNGs (and copy into artifacts for remote runs).
+    best_name = best[0] if best else None
+    imgs = visualize(v, rows_err, best_name, outdir="outputs")
+    try:
+        os.makedirs(".openresearch/artifacts", exist_ok=True)
+        import shutil
+        for p in imgs:
+            shutil.copy(p, os.path.join(".openresearch/artifacts",
+                                        os.path.basename(p)))
+    except Exception:
+        pass
 
     write_eval(v, l, rows, best)
     if best is None:
@@ -158,6 +258,15 @@ def write_eval(v, l, rows, best):
     lines.append(f"- Bounding box: min `{v.min(0).round(4).tolist()}`, "
                  f"max `{v.max(0).round(4).tolist()}`")
     lines.append(f"- Bundled patch label `l = {l!r}`")
+    lines.append("")
+    lines.append("## Visualization")
+    lines.append("")
+    lines.append("Input points colored by point-to-surface distance "
+                 "(blue = on the fitted surface, red = far):")
+    lines.append("")
+    lines.append("![per-primitive fits](outputs/primitive_fits.png)")
+    lines.append("")
+    lines.append("![best fit](outputs/best_fit.png)")
     lines.append("")
     lines.append("## Results — fit residual per primitive type")
     lines.append("")

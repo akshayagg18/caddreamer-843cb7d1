@@ -29,7 +29,7 @@ fi
 
 # Python deps for the driver. trimesh is needed because the bundled sample
 # (test_data_for_pyransac.pth) was dill-pickled with trimesh objects in scope.
-python3 -m pip install --quiet numpy dill trimesh 2>/dev/null || pip install --quiet numpy dill trimesh 2>/dev/null || true
+python3 -m pip install --quiet numpy dill trimesh matplotlib 2>/dev/null || pip install --quiet numpy dill trimesh matplotlib 2>/dev/null || true
 
 # ---- 2. Build the fitpoints extension ------------------------------------
 echo "[2/4] Building fitpoints (pybind11 RANSAC primitive fitter)..."
