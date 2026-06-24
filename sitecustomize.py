@@ -41,5 +41,27 @@ if os.environ.get("CADDREAMER_FORCE_CPU", "1") == "1":
                 _tu._rebuild_tensor_v2 = _rebuild_cpu
             except Exception:
                 pass
+
+            # 3) Make .cuda() a no-op on a CPU-only box so the segmentation's
+            #    hardcoded .cuda() calls don't crash. Returns the tensor/module
+            #    unchanged (already on CPU).
+            try:
+                torch.Tensor.cuda = lambda self, *a, **k: self
+                torch.nn.Module.cuda = lambda self, *a, **k: self
+            except Exception:
+                pass
+
+            # 4) device('cuda') -> CPU; and torch.cuda.* shims used incidentally
+            try:
+                _orig_device = torch.device
+
+                def _device(*a, **k):
+                    if a and isinstance(a[0], str) and a[0].startswith("cuda"):
+                        return _orig_device("cpu")
+                    return _orig_device(*a, **k)
+
+                torch.device = _device
+            except Exception:
+                pass
     except Exception:
         pass
