@@ -160,6 +160,11 @@ LOG "3. Build fitpoints"
 ) || { echo "fitpoints build failed:"; tail -25 pyransac/cmake.log; exit 1; }
 ls -la pyransac/cmake-build-release/fitpoints*.so
 
+# The repo's neus/newton/process.py hardcodes a machine-specific
+# `sys.path.append("/mnt/disk/CADDreamer/neus")` so that `import newton.*`
+# resolves. Reproduce that on PYTHONPATH pointing at THIS checkout's neus/ dir.
+export PYTHONPATH="$(pwd)/neus:$(pwd):$PYTHONPATH"
+
 # --------------------------------------------------------------------------
 # 4. Stage 2 — segmentation (writes the temp cache stage 3 consumes)
 # --------------------------------------------------------------------------
