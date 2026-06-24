@@ -39,21 +39,28 @@ fi
 source "$CONDA_DIR/etc/profile.d/conda.sh"
 
 ENV=cad
+# Use mamba (bundled in Miniforge) — far faster solver than classic conda; the
+# combined native solve otherwise grinds for many minutes. Split into a few
+# smaller transactions instead of one giant cross-channel solve.
 if ! conda env list | grep -q "/$ENV$"; then
-    LOG "1a. Create env (python 3.10) + conda-forge binaries"
-    conda create -y -n "$ENV" python=3.10 >/dev/null
+    LOG "1a. Create env (python 3.10)"
+    mamba create -y -n "$ENV" python=3.10 2>&1 | tail -2
     conda activate "$ENV"
-    # Resolve the whole native stack in ONE conda transaction so versions are
-    # mutually compatible: torch + pytorch3d + torch-scatter (prebuilt, no
-    # source build), FreeCAD (OpenCascade + Part/Mesh bindings), pythonocc-core
-    # (OCC.*), and the scientific/mesh libs.
-    conda install -y -c pytorch3d -c pytorch -c conda-forge \
-        "pytorch=2.0.1" "torchvision=0.15.2" cpuonly \
-        pytorch3d pytorch_scatter \
-        freecad=0.21 pythonocc-core=7.7.2 eigen \
+
+    LOG "1b. torch + pytorch3d + torch-scatter (pytorch3d channel)"
+    mamba install -y -c pytorch3d -c pytorch -c conda-forge \
+        "pytorch=2.0.1" "torchvision=0.15.2" cpuonly pytorch3d pytorch_scatter \
+        2>&1 | tail -4
+
+    LOG "1c. FreeCAD + pythonOCC (conda-forge)"
+    mamba install -y -c conda-forge freecad=0.21 pythonocc-core=7.7.2 eigen \
+        2>&1 | tail -4
+
+    LOG "1d. scientific / mesh libs (conda-forge)"
+    mamba install -y -c conda-forge \
         "numpy=1.24" scipy networkx trimesh shapely rtree \
         scikit-image scikit-learn matplotlib pillow opencv \
-        2>&1 | tail -5
+        2>&1 | tail -4
 else
     conda activate "$ENV"
 fi
