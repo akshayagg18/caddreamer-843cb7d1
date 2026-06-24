@@ -210,6 +210,10 @@ ls -la pyransac/cmake-build-release/fitpoints*.so
 # `sys.path.append("/mnt/disk/CADDreamer/neus")` so it can `import newton.*`.
 export PYTHONPATH="$(pwd):$(pwd)/neus:$PYTHONPATH"
 
+# The stages write intermediate .obj/cache files into these dirs but don't
+# create them. Make them upfront.
+mkdir -p neus/temp_mid_outputs neus/temp_mid_results
+
 # --------------------------------------------------------------------------
 # 4. Stage 2 — segmentation (writes the temp cache stage 3 consumes)
 # --------------------------------------------------------------------------
