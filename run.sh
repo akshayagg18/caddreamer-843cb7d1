@@ -43,11 +43,17 @@ if ! conda env list | grep -q "/$ENV$"; then
     LOG "1a. Create env (python 3.10) + conda-forge binaries"
     conda create -y -n "$ENV" python=3.10 >/dev/null
     conda activate "$ENV"
-    # FreeCAD brings OpenCascade + Part/Mesh bindings; pythonocc-core gives OCC.*;
-    # pymeshlab/potpourri3d/eigen via conda-forge as prebuilt wheels/pkgs.
-    conda install -y -c conda-forge \
+    # Resolve the whole native stack in ONE conda transaction so versions are
+    # mutually compatible: torch + pytorch3d + torch-scatter (prebuilt, no
+    # source build), FreeCAD (OpenCascade + Part/Mesh bindings), pythonocc-core
+    # (OCC.*), and the scientific/mesh libs.
+    conda install -y -c pytorch3d -c pytorch -c conda-forge \
+        "pytorch=2.0.1" "torchvision=0.15.2" cpuonly \
+        pytorch3d pytorch_scatter \
         freecad=0.21 pythonocc-core=7.7.2 eigen \
-        numpy=1.24 scipy networkx trimesh shapely rtree pyembree 2>&1 | tail -3
+        "numpy=1.24" scipy networkx trimesh shapely rtree \
+        scikit-image scikit-learn matplotlib pillow opencv \
+        2>&1 | tail -5
 else
     conda activate "$ENV"
 fi
@@ -55,25 +61,36 @@ PY="$CONDA_DIR/envs/$ENV/bin/python"
 LOG "python: $($PY --version 2>&1)  at $PY"
 
 # --------------------------------------------------------------------------
-# 2. pip deps (torch CPU is enough for stage2/3 tensor ops; pytorch3d + the
-#    rendering/segmentation stack).
+# 2. pip deps — install each INDIVIDUALLY so one failure can't abort the rest.
+#    These are the pure-python / small libs not on the conda channels above.
 # --------------------------------------------------------------------------
-LOG "2. pip dependencies"
+LOG "2. pip dependencies (individual, best-effort)"
 $PY -m pip install --quiet --upgrade pip
-$PY -m pip install --quiet \
-    "torch==2.0.1" "torchvision==0.15.2" --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -2 || \
-    $PY -m pip install --quiet "torch" "torchvision" 2>&1 | tail -2
-$PY -m pip install --quiet \
-    opencv-python-headless pillow scikit-image scikit-learn matplotlib \
-    dill tqdm einops omegaconf pyhocon icecream loguru \
-    potpourri3d pymeshlab python-louvain trimesh open3d \
-    torch-scatter 2>&1 | tail -3 || true
-# pytorch3d (CPU) from source-light wheel; fall back to git if needed
-$PY -m pip install --quiet "git+https://github.com/facebookresearch/pytorch3d.git@stable" 2>&1 | tail -3 || \
-    $PY -m pip install --quiet pytorch3d 2>&1 | tail -2 || true
-# blenderproc/bpy are imported by stage2; install bpy (headless blender python)
-$PY -m pip install --quiet "bpy==3.6.0" --extra-index-url https://download.blender.org/pypi/ 2>&1 | tail -2 || true
-$PY -m pip install --quiet blenderproc 2>&1 | tail -2 || true
+for pkg in opencv-python-headless dill tqdm einops omegaconf pyhocon \
+           icecream loguru potpourri3d pymeshlab python-louvain open3d; do
+    $PY -m pip install --quiet "$pkg" 2>&1 | tail -1 || echo "  (pip $pkg failed, continuing)"
+done
+# bpy / blenderproc are imported by stage2; best-effort headless blender python
+$PY -m pip install --quiet "bpy==3.6.0" --extra-index-url https://download.blender.org/pypi/ 2>&1 | tail -1 || echo "  (bpy failed)"
+$PY -m pip install --quiet blenderproc 2>&1 | tail -1 || echo "  (blenderproc failed)"
+
+# FreeCAD python path so `import FreeCAD/Part/Mesh` works under our python.
+export PYTHONPATH="$CONDA_DIR/envs/$ENV/lib:$CONDA_DIR/envs/$ENV/Mod:$PYTHONPATH"
+
+# Sanity: confirm the hard imports resolve before running the stages.
+LOG "2a. Import sanity check"
+$PY - <<'PYCHK'
+mods = ["torch","torchvision","cv2","numpy","scipy","trimesh","pytorch3d",
+        "torch_scatter","pymeshlab","potpourri3d","networkx","FreeCAD","Part","OCC"]
+ok, bad = [], []
+for m in mods:
+    try:
+        __import__(m); ok.append(m)
+    except Exception as e:
+        bad.append(f"{m}: {type(e).__name__}: {e}")
+print("OK:", ok)
+print("MISSING:", *bad, sep="\n  ")
+PYCHK
 
 # --------------------------------------------------------------------------
 # 3. Build the fitpoints RANSAC extension against THIS python.
@@ -90,14 +107,13 @@ LOG "3. Build fitpoints"
 ) || { echo "fitpoints build failed:"; tail -25 pyransac/cmake.log; exit 1; }
 ls -la pyransac/cmake-build-release/fitpoints*.so
 
-# FreeCAD python path so `import FreeCAD/Part/Mesh` works under our python
-export PYTHONPATH="$CONDA_DIR/envs/$ENV/lib:$CONDA_DIR/envs/$ENV/Mod:$PYTHONPATH"
-
 # --------------------------------------------------------------------------
 # 4. Stage 2 — segmentation (writes the temp cache stage 3 consumes)
 # --------------------------------------------------------------------------
 LOG "4. Stage 2: segmentation"
+set +e
 $PY test_syne_images_stage_2_segmentation.py --config_dir "./$EXAMPLE" --review True 2>&1 | tee "$ART/stage2.log" | tail -40
+echo "stage2 exit: ${PIPESTATUS[0]}"
 
 # --------------------------------------------------------------------------
 # 5. Stage 3 — primitive fit + OCC intersection -> STEP
