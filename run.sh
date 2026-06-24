@@ -64,7 +64,7 @@ if ! conda env list | grep -q "/$ENV$"; then
 
     LOG "1d. scientific / mesh libs (conda-forge)"
     mamba install -y -c conda-forge \
-        "numpy=1.24" scipy networkx trimesh shapely rtree \
+        "numpy=1.24" scipy networkx trimesh shapely rtree pandas \
         scikit-image scikit-learn matplotlib pillow opencv \
         2>&1 | tail -4
 else
@@ -152,7 +152,8 @@ fi
 LOG "2a. Import sanity check"
 $PY - <<'PYCHK'
 mods = ["torch","torchvision","cv2","numpy","scipy","trimesh","pytorch3d",
-        "torch_scatter","pymeshlab","potpourri3d","networkx","FreeCAD","Part","OCC"]
+        "torch_scatter","pymeshlab","potpourri3d","networkx","FreeCAD","Part","OCC",
+        "community","pandas","pymesh"]
 ok, bad = [], []
 for m in mods:
     try:
@@ -161,6 +162,19 @@ for m in mods:
         bad.append(f"{m}: {type(e).__name__}: {e}")
 print("OK:", ok)
 print("MISSING:", *bad, sep="\n  ")
+# Surface the REAL error behind a failing `from utils.graphcut import ...`
+# (Python masks a sub-import failure as "No module named 'utils.graphcut'").
+import sys, os
+sys.path.insert(0, os.getcwd())
+sys.path.insert(1, os.path.join(os.getcwd(), "neus"))
+try:
+    import importlib
+    importlib.import_module("utils.graphcut")
+    print("utils.graphcut: import OK")
+except Exception as e:
+    import traceback
+    print("utils.graphcut REAL error:")
+    traceback.print_exc()
 PYCHK
 
 # --------------------------------------------------------------------------
