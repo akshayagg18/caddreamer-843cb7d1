@@ -91,8 +91,11 @@ $PY -m pip install --quiet blenderproc 2>&1 | tail -1 || echo "  (blenderproc fa
 # run" guard, exactly as the repo's setup.sh does — the stages import it under
 # plain `python`.
 LOG "2b. Patch blenderproc guard"
-BP_INIT=$($PY -c "import os,blenderproc; print(os.path.join(os.path.dirname(blenderproc.__file__),'__init__.py'))" 2>/dev/null || true)
-if [ -n "$BP_INIT" ] && [ -f "$BP_INIT" ]; then
+# Locate __init__.py on disk (NOT via import — importing triggers the very
+# guard we're removing, so an import-based lookup fails before patching).
+SITEPKG=$($PY -c "import site;print(site.getsitepackages()[0])")
+BP_INIT="$SITEPKG/blenderproc/__init__.py"
+if [ -f "$BP_INIT" ]; then
 cat > "$BP_INIT" <<'BPEOF'
 """A procedural Blender pipeline for photorealistic rendering."""
 import os
