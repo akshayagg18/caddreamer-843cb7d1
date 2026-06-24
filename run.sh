@@ -18,9 +18,13 @@ mkdir -p .openresearch/artifacts
 # ---- 1. System build deps -------------------------------------------------
 echo "[1/4] Installing build dependencies (cmake, g++, eigen, python-dev)..."
 export DEBIAN_FRONTEND=noninteractive
+PYVER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq >/dev/null 2>&1 || true
     apt-get install -y -qq build-essential cmake libeigen3-dev pkg-config python3-dev >/dev/null 2>&1 || true
+    # dev headers matching the *runtime* python3 (e.g. python3.11-dev), so the
+    # extension is built against the same interpreter it will be imported into.
+    apt-get install -y -qq "python${PYVER}-dev" >/dev/null 2>&1 || true
 fi
 
 # Python deps for the driver
@@ -29,9 +33,16 @@ python3 -m pip install --quiet numpy dill 2>/dev/null || pip install --quiet num
 # ---- 2. Build the fitpoints extension ------------------------------------
 echo "[2/4] Building fitpoints (pybind11 RANSAC primitive fitter)..."
 cd pyransac
+PYEXE=$(command -v python3)
 PYTAG=$(python3 -c "import sys;print(f'{sys.version_info.major}{sys.version_info.minor}')")
+echo "    building against $PYEXE (py${PYTAG})"
 BUILT_SO=""
-if cmake -S . -B build-orx -DCMAKE_BUILD_TYPE=Release >build_cmake.log 2>&1 \
+# Pin cmake to the SAME interpreter that will run the driver, so the produced
+# extension's ABI tag matches the runtime python (avoids a py310 .so vs py3xx
+# runtime mismatch).
+if cmake -S . -B build-orx -DCMAKE_BUILD_TYPE=Release \
+        -DPython3_EXECUTABLE="$PYEXE" \
+        -DPYTHON_EXECUTABLE="$PYEXE" >build_cmake.log 2>&1 \
    && cmake --build build-orx --target fitpoints -j "$(nproc)" >>build_cmake.log 2>&1; then
     BUILT_SO=$(ls build-orx/fitpoints*.so 2>/dev/null | head -1 || true)
     echo "    built: $BUILT_SO"
@@ -40,16 +51,22 @@ else
     tail -20 build_cmake.log || true
 fi
 
-# Locate an importable fitpoints module: freshly built, else prebuilt 3.10 .so
-if [ -n "$BUILT_SO" ]; then
+# Locate an importable fitpoints module. Prefer a freshly built one whose ABI
+# tag matches the runtime python; else fall back to the prebuilt py310 .so.
+EXPECT_TAG="cpython-${PYTAG}"
+if [ -n "$BUILT_SO" ] && echo "$BUILT_SO" | grep -q "$EXPECT_TAG"; then
     export FITPOINTS_DIR="$(pwd)/build-orx"
+    echo "    using freshly built module (tag $EXPECT_TAG)"
 elif [ "$PYTAG" = "310" ] && ls cmake-build-release/fitpoints*.so >/dev/null 2>&1; then
     echo "    using prebuilt cmake-build-release/*.so (py310 match)"
     export FITPOINTS_DIR="$(pwd)/cmake-build-release"
+elif [ -n "$BUILT_SO" ]; then
+    # build produced a .so but tag may still match import (e.g. abi3); try it
+    export FITPOINTS_DIR="$(pwd)/build-orx"
+    echo "    using freshly built module $BUILT_SO (runtime py${PYTAG})"
 else
-    PRE=$(ls cmake-build-release/fitpoints*.so 2>/dev/null | head -1 || true)
-    echo "    no fresh build and prebuilt is py310 (box is py${PYTAG}); attempting prebuilt anyway"
-    export FITPOINTS_DIR="$(pwd)/cmake-build-release"
+    echo "    no usable fitpoints build; cmake log tail:" && tail -25 build_cmake.log
+    cd .. && exit 1
 fi
 cd ..
 
