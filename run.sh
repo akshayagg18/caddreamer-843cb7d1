@@ -82,7 +82,7 @@ $PY -m pip install --quiet --upgrade pip
 for pkg in opencv-python-headless dill tqdm einops omegaconf pyhocon \
            icecream loguru potpourri3d pymeshlab python-louvain open3d \
            gitpython rich pyyaml requests setuptools transforms3d \
-           pyquaternion coloredlogs; do
+           pyquaternion coloredlogs pypng; do
     $PY -m pip install --quiet "$pkg" 2>&1 | tail -1 || echo "  (pip $pkg failed, continuing)"
 done
 # bpy / blenderproc are imported by stage2; best-effort headless blender python
@@ -98,6 +98,10 @@ LOG "2b. Patch blenderproc guard"
 SITEPKG=$($PY -c "import site;print(site.getsitepackages()[0])")
 BP_INIT="$SITEPKG/blenderproc/__init__.py"
 if [ -f "$BP_INIT" ]; then
+# The CADDreamer stages only use bproc.camera and bproc.math. Import just
+# those (plus utility/types they depend on) to avoid pulling blenderproc's
+# entire writer/loader/renderer chain and its long optional-dependency tail
+# (pypng, etc.). Guard removed so it imports under plain `python`.
 cat > "$BP_INIT" <<'BPEOF'
 """A procedural Blender pipeline for photorealistic rendering."""
 import os
@@ -105,22 +109,10 @@ import sys
 from .version import __version__
 if sys.version_info.major < 3:
     raise Exception("BlenderProc requires at least python 3.X to run.")
-from .api import loader
 from .api import utility
-from .api import sampler
 from .api import math
-from .python.utility.Initializer import init, clean_up
-from .api import postprocessing
-from .api import writer
-from .api import material
-from .api import lighting
 from .api import camera
-from .api import renderer
-from .api import world
-from .api import constructor
 from .api import types
-from .api import object
-from .api import filter
 if "INSIDE_OF_THE_INTERNAL_BLENDER_PYTHON_ENVIRONMENT" in os.environ:
     sys.path.remove(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     if "PYTHONPATH" in os.environ:
