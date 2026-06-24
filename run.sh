@@ -130,6 +130,24 @@ fi
 # FreeCAD python path so `import FreeCAD/Part/Mesh` works under our python.
 export PYTHONPATH="$CONDA_DIR/envs/$ENV/lib:$CONDA_DIR/envs/$ENV/Mod:$PYTHONPATH"
 
+# PyMesh: try the real package; if it won't build, install a trimesh-backed
+# shim so the import resolves and the OCC STEP path (which doesn't depend on
+# PyMesh's CGAL self-intersection ops) can run. The shim covers the few calls
+# in neus/fit_surfaces/io_utils.py.
+LOG "2c. PyMesh (real, else trimesh-backed shim)"
+if ! $PY -c "import pymesh" 2>/dev/null; then
+    $PY -m pip install --quiet pymesh2 2>&1 | tail -2 || true
+fi
+if ! $PY -c "import pymesh" 2>/dev/null; then
+    echo "  real PyMesh unavailable -> installing trimesh-backed shim"
+    SHIM_DIR="$SITEPKG/pymesh"
+    mkdir -p "$SHIM_DIR"
+    cp "$(pwd)/pymesh_shim.py" "$SHIM_DIR/__init__.py"
+    $PY -c "import pymesh; print('  pymesh shim OK')"
+else
+    echo "  real PyMesh present"
+fi
+
 # Sanity: confirm the hard imports resolve before running the stages.
 LOG "2a. Import sanity check"
 $PY - <<'PYCHK'
