@@ -32,11 +32,23 @@ import dill  # noqa: E402
 TYPE_NAMES = {0: "plane", 1: "cylinder", 2: "cone", 3: "sphere", 4: "torus"}
 
 
+def _as_points(x):
+    """Coerce a dill-loaded object (ndarray / list / trimesh / torch tensor)
+    into an (N,3) float64 array."""
+    # torch tensor
+    if hasattr(x, "detach") and hasattr(x, "cpu"):
+        x = x.detach().cpu().numpy()
+    # trimesh objects -> use their vertices
+    if hasattr(x, "vertices") and not isinstance(x, np.ndarray):
+        x = np.asarray(x.vertices)
+    return np.asarray(x, dtype=np.float64).reshape(-1, 3)
+
+
 def load_sample(path="pyransac/test_data_for_pyransac.pth"):
     with open(path, "rb") as f:
         v, n, l = dill.load(f)
-    v = np.asarray(v, dtype=np.float64).reshape(-1, 3)
-    n = np.asarray(n, dtype=np.float64).reshape(-1, 3)
+    v = _as_points(v)
+    n = _as_points(n)
     return v, n, l
 
 
