@@ -47,17 +47,23 @@ if ! conda env list | grep -q "/$ENV$"; then
     mamba create -y -n "$ENV" python=3.10 2>&1 | tail -2
     conda activate "$ENV"
 
-    LOG "1b. torch (CUDA) + pytorch3d + torch-scatter"
-    # The segmentation has hardcoded CUDA paths (pytorch3d rasterization), so we
-    # run on GPU with a real CUDA torch. pytorch3d from its channel, matched to
-    # this torch + the box's CUDA.
+    LOG "1b. torch (CUDA) via conda; pytorch3d + torch-scatter via pip wheels"
+    # The segmentation has hardcoded CUDA paths (pytorch3d rasterization) so we
+    # need a real CUDA torch. Install torch from pytorch/nvidia channels (this
+    # transaction is fast/fine), but get pytorch3d + torch-scatter from PIP
+    # WHEELS — the cross-channel conda solve for pytorch3d on CUDA does NOT
+    # converge (it hung for ~3h). PyG hosts cu118 wheels; pytorch3d hosts a
+    # prebuilt wheel index keyed by torch+cuda+python.
     mamba install -y -c pytorch -c nvidia -c conda-forge \
         "pytorch=2.0.1" "torchvision=0.15.2" "pytorch-cuda=11.8" \
         2>&1 | tail -4
-    mamba install -y -c pytorch3d -c pytorch -c nvidia -c conda-forge \
-        pytorch3d pytorch_scatter 2>&1 | tail -4 || \
-      $CONDA_DIR/envs/$ENV/bin/pip install --quiet \
-        torch-scatter -f https://data.pyg.org/whl/torch-2.0.1+cu118.html 2>&1 | tail -2
+    PIPI="$CONDA_DIR/envs/$ENV/bin/pip"
+    $PIPI install --quiet torch-scatter \
+        -f https://data.pyg.org/whl/torch-2.0.1+cu118.html 2>&1 | tail -2 || true
+    # pytorch3d prebuilt wheel for torch2.0.1 / cu118 / py310
+    $PIPI install --quiet --no-index pytorch3d \
+        -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu118_pyt201/download.html 2>&1 | tail -2 || \
+      $PIPI install --quiet "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.4" 2>&1 | tail -3 || true
 
     LOG "1c. FreeCAD + pythonOCC (conda-forge)"
     mamba install -y -c conda-forge freecad=0.21 pythonocc-core=7.7.2 eigen \
